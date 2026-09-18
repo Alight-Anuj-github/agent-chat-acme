@@ -13,17 +13,18 @@ RUNTIME_AGENT_ARN = "arn:aws:bedrock-agentcore:us-east-1:918817395031:runtime/Ac
 REGION = "us-east-1"
 
 
+
 def create_client():
-    """Create a Bedrock Agent Runtime client."""
-    return boto3.client("bedrock-agent-runtime", region_name=REGION)
+    """Create a Bedrock AgentCore client."""
+    return boto3.client("bedrock-agentcore", region_name=REGION)
 
 
 def invoke_agent(client, prompt: str, session_id: str) -> Optional[str]:
     """
-    Invoke the agent with a prompt and session ID using boto3.
+    Invoke the AgentCore agent with a prompt and session ID using boto3.
 
     Args:
-        client: Bedrock Agent Runtime client
+        client: Bedrock AgentCore client
         prompt: User's question/prompt
         session_id: Session ID to maintain conversation context
 
@@ -31,32 +32,39 @@ def invoke_agent(client, prompt: str, session_id: str) -> Optional[str]:
         Response text from the agent or None if error
     """
     try:
-        response = client.invoke_agent(
-            agentAliasArn=RUNTIME_AGENT_ARN,
-            sessionId=session_id,
-            inputText=prompt,
+        response = client.invoke_agent_runtime(
+            agentRuntimeArn=RUNTIME_AGENT_ARN,
+            runtimeSessionId=session_id,
+            payload=json.dumps({"prompt": prompt}).encode(),
         )
         
-        # Process the response stream
-        output_text = ""
-        if "outputStream" in response:
-            for event in response["outputStream"]:
-                if "chunk" in event:
-                    chunk = event["chunk"]
-                    if "bytes" in chunk:
-                        output_text += chunk["bytes"].decode("utf-8")
+        # Read response body
+        response_body = response["response"].read()
+        response_text = response_body.decode("utf-8")
         
-        # Try to parse JSON response
+        if not response_text:
+            return "No response from agent"
+        
+        # Try to parse as JSON if possible
         try:
-            data = json.loads(output_text)
-            if isinstance(data, dict) and "response" in data:
-                return data["response"]
+            data = json.loads(response_text)
+            if isinstance(data, dict):
+                # Check for common response fields
+                if "response" in data:
+                    return data["response"].strip()
+                elif "text" in data:
+                    return data["text"].strip()
+                else:
+                    return json.dumps(data, indent=2).strip()
         except json.JSONDecodeError:
+            # Not JSON, return as-is
             pass
         
-        return output_text.strip() if output_text.strip() else "No response from agent"
+        return response_text.strip() if response_text.strip() else "No response from agent"
     except ClientError as e:
-        return f"Error: {str(e)}"
+        error_code = e.response.get("Error", {}).get("Code", "Unknown")
+        error_msg = e.response.get("Error", {}).get("Message", str(e))
+        return f"Error ({error_code}): {error_msg}"
     except Exception as e:
         return f"Error: {str(e)}"
 
@@ -75,11 +83,11 @@ def main() -> None:
     print("=" * 70)
     print()
 
-    # Create Bedrock client
+    # Create Bedrock AgentCore client
     try:
         client = create_client()
     except Exception as e:
-        print(f"Failed to create Bedrock client: {e}")
+        print(f"Failed to create Bedrock Agent Runtime client: {e}")
         sys.exit(1)
 
     # Interactive loop

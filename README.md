@@ -8,13 +8,13 @@ Interactive chat for conversing with your AgentCore runtime agent for Acme Suppo
 - **Persistent session** - Automatically creates a session ID on startup and reuses it throughout the conversation
 - **Simple CLI interface** - Clean command-line interface with clear prompts
 - **Error handling** - Graceful error handling and user feedback
-- **Zero external dependencies** - Uses only Python standard library + agentcore CLI
+- **Uses boto3** - Leverages AWS SDK for Python to directly invoke AgentCore runtime
 
 ## Prerequisites
 
 - Python 3.10+
-- `agentcore` CLI installed and in your PATH
-- AWS credentials configured (inherited by agentcore CLI)
+- AWS credentials configured (via AWS SSO or environment variables)
+- Bedrock AgentCore runtime deployed and accessible
 
 ## Installation
 
@@ -26,15 +26,15 @@ uv sync
 
 ## AWS Authentication
 
-Before running the chat, you must authorize your command line with AWS SSO using the **alight-qc-data-solutions** account:
+Before running the chat, you must authorize your AWS credentials using AWS SSO with the **alight-qc-data-solutions** account:
 
 ```bash
 aws sso login --profile alight-qc-data-solutions
 ```
 
-Make sure you have an appropriate role assigned in the alight-qc-data-solutions account that has permissions to invoke AgentCore agents (e.g., `bedrock:InvokeAgent` action).
+Make sure you have an appropriate role assigned in the alight-qc-data-solutions account that has permissions to invoke AgentCore agents (e.g., `bedrock-agentcore:InvokeAgentRuntime` action).
 
-Once authenticated, the agentcore CLI will use your SSO credentials automatically to invoke the agent.
+Once authenticated, boto3 will automatically use your SSO credentials to invoke the agent.
 
 ## Usage
 
@@ -86,25 +86,34 @@ Session ended. Goodbye!
 
 ## Configuration
 
-To use with a different agent ARN, edit the constant in `src/agent_chat/__init__.py`:
+To use with a different Bedrock AgentCore runtime, update the ARN in `src/agent_chat_acme/__init__.py`:
 
 ```python
 RUNTIME_AGENT_ARN = "arn:aws:bedrock-agentcore:region:account-id:runtime/AgentName"
+```
+
+You can find your runtime ARN by running:
+```bash
+agentcore status
 ```
 
 ## How It Works
 
 1. Creates a new session ID (UUID) when started
 2. Maintains this session ID throughout the conversation
-3. Calls the `agentcore invoke` CLI command with each user input and the session ID
-4. Displays agent responses in real-time
-5. Continues until user types "exit" or "quit"
+3. Uses boto3 `bedrock-agentcore` client's `invoke_agent_runtime()` method
+4. Sends the agent runtime ARN, session ID, and prompt payload
+5. Reads and processes the response stream from the agent
+6. Displays agent responses in real-time
+7. Continues until user types "exit" or "quit"
 
-This approach leverages the agentcore CLI which you've already tested and verified works with your AWS setup.
+This approach uses boto3's Bedrock AgentCore API which provides direct access to deployed AgentCore runtimes.
 
 ## Troubleshooting
 
-- **"Error: 'agentcore' CLI not found"**: Make sure the agentcore CLI is installed and in your PATH
-- **"Error invoking agent"**: Check that the agentcore CLI command works directly: `agentcore invoke --prompt "test" --session-id 123`
-- **Empty responses**: Check that your AWS credentials are configured and you have permissions to invoke the agent
+- **"Failed to create Bedrock AgentCore client"**: Check that AWS credentials are configured and accessible via `aws sts get-caller-identity`
+- **"Error invoking agent"**: Verify the agent ARN is correct by running `agentcore status`
+- **"Access Denied"**: Make sure you have IAM permissions for `bedrock-agentcore:InvokeAgentRuntime` action
+- **"ValidationException"**: Check that the ARN format is correct and points to a valid deployed runtime
+- **Empty responses**: Check that your AgentCore runtime is deployed (`agentcore status`) and the session ID is valid
 
